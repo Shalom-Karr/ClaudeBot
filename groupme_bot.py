@@ -171,7 +171,8 @@ def handle_task_command(description: str, group_id: str, requester: str) -> str:
     if missing:
         return f"⚠️ Cannot run tasks — missing env vars: {', '.join(missing)}"
 
-    # Check for existing active task in this group
+    # Allow new tasks if the active one has been handed off to Copilot (assigned/PR stage),
+    # since those run autonomously and don't block new work.
     active = task_mgr.get_active_task(group_id)
     if active and active.status not in (TaskStatus.COPILOT_ASSIGNED, TaskStatus.PR_CREATED):
         return f"⏳ A task is already in progress ({active.task_id}): \"{active.description[:60]}\""
@@ -352,11 +353,12 @@ def github_webhook():
     pr_url = pr.get("html_url", "")
     pr_body = pr.get("body", "")
 
-    # Check if this PR was created by Copilot
+    # Check if this PR was created by a bot (Copilot)
     user = pr.get("user", {})
+    user_type = user.get("type", "")
     user_login = user.get("login", "")
 
-    if "copilot" not in user_login.lower() and "[bot]" not in user_login.lower():
+    if user_type != "Bot" and "copilot" not in user_login.lower():
         return jsonify({"status": "ok"}), 200
 
     logger.info("[GitHub Webhook] Copilot PR #%d: %s", pr_number, pr_title)

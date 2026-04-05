@@ -129,7 +129,11 @@ def _get_repo_context(
     if file_contents:
         context += "\n## Key File Contents\n"
         for path, content in file_contents.items():
-            context += f"\n### `{path}`\n```python\n{content}\n```\n"
+            ext = path.rsplit(".", 1)[-1] if "." in path else ""
+            lang = {"py": "python", "js": "javascript", "ts": "typescript",
+                    "yaml": "yaml", "yml": "yaml", "json": "json", "md": "markdown",
+                    "sh": "bash", "html": "html", "css": "css"}.get(ext, "")
+            context += f"\n### `{path}`\n```{lang}\n{content}\n```\n"
 
     return context
 

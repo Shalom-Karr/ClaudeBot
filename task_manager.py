@@ -37,7 +37,11 @@ class Task:
     pr_url: Optional[str] = None
     error: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.updated_at:
+            self.updated_at = self.created_at
 
 
 class TaskManager:

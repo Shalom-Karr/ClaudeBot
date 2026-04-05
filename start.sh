@@ -40,6 +40,9 @@ if ! command -v cloudflared &>/dev/null; then
     # Detect architecture and install
     if [[ "$(uname -s)" == "Linux" ]]; then
         ARCH=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+        if ! command -v dpkg &>/dev/null; then
+            warn "dpkg not found — defaulting to amd64 architecture for cloudflared download."
+        fi
         curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb" -o /tmp/cloudflared.deb
         sudo dpkg -i /tmp/cloudflared.deb
         rm -f /tmp/cloudflared.deb
