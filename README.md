@@ -1,17 +1,43 @@
 # 🤖 ClaudeBot
 
-A **GroupMe AI chatbot** powered by [Claude](https://www.anthropic.com/) (Anthropic). ClaudeBot listens for messages in your GroupMe group chat via webhooks and responds intelligently using the Claude AI model — with per-group conversation memory.
+A **GroupMe AI chatbot** powered by [Gemini](https://ai.google.dev/) with an integrated **AI coding pipeline** — send a message in GroupMe, and Gemini crafts a prompt for [GitHub Copilot](https://github.com/features/copilot) which creates a pull request automatically.
 
 ---
 
 ## ✨ Features
 
-- 🧠 **Claude AI responses** — Uses `claude-sonnet-4-5-20250929` for smart, conversational replies
-- 💬 **GroupMe integration** — Receives messages via webhook callback and replies through the GroupMe Bot API
-- 🗂️ **Per-group conversation history** — Maintains context (last 20 messages) per group chat
-- 🔁 **Loop prevention** — Automatically ignores messages from other bots
-- ❤️ **Health check endpoint** — `/health` route for monitoring
-- 🚀 **Ready to deploy** — Listens on `0.0.0.0:8000` out of the box
+- 🧠 **Gemini AI conversations** — Chat with Gemini in your GroupMe group (per-group memory)
+- 🔧 **AI coding pipeline** — Send `task: <description>` and Gemini crafts a GitHub issue → Copilot implements it → PR created
+- 💬 **GroupMe integration** — Receives messages via webhook, replies through GroupMe Bot API
+- 🌐 **Cloudflare Tunnel** — Expose your local server to the internet (no ngrok needed)
+- 🐧 **Linux / Codespaces ready** — Runs on any Linux server or GitHub Codespace out of the box
+- 🔁 **Loop prevention** — Ignores bot messages to prevent infinite loops
+- ❤️ **Health check** — `/health` endpoint for monitoring
+
+---
+
+## 🏗️ Architecture
+
+```
+GroupMe Chat
+    │
+    ▼
+┌──────────────────────────────────┐
+│  groupme_bot.py (Flask :8000)    │
+│                                  │
+│  "hello" ──► Gemini Chat         │
+│  "task: ..." ──► Pipeline:       │
+│    1. Gemini crafts issue prompt │
+│    2. GitHub Issue created       │
+│    3. Copilot assigned           │
+│    4. Copilot creates PR         │
+└──────────┬───────────────────────┘
+           │
+    Cloudflare Tunnel
+           │
+    Public URL (*.trycloudflare.com
+     or your custom domain)
+```
 
 ---
 
@@ -19,133 +45,108 @@ A **GroupMe AI chatbot** powered by [Claude](https://www.anthropic.com/) (Anthro
 
 ```
 ClaudeBot/
+├── .devcontainer/
+│   └── devcontainer.json        # GitHub Codespaces / VS Code dev container
 ├── .github/
-│   └── copilot-instructions.md   # Instructions for GitHub Copilot agent
-├── groupme_bot.py                # Main application (Flask server + Claude AI + GroupMe integration)
-├── ideas.md                      # Project roadmap, architecture & development plans
-└── README.md                     # You are here
+│   └── copilot-instructions.md  # Instructions for GitHub Copilot agent
+├── groupme_bot.py               # Main Flask app — webhooks, commands, chat
+├── gemini_architect.py          # Gemini AI — conversation + prompt architect
+├── github_copilot.py            # GitHub API — issues, Copilot assignment, PRs
+├── task_manager.py              # In-memory task state tracking
+├── start.sh                     # Launch script (bot + Cloudflare Tunnel)
+├── requirements.txt             # Python dependencies
+├── ideas.md                     # Project roadmap & architecture plans
+└── README.md                    # You are here
 ```
 
 ---
 
 ## 🔧 Environment Variables
 
-You **must** set these environment variables before running or deploying:
-
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | ✅ Yes | Your Anthropic API key ([get one here](https://console.anthropic.com/)) |
+| `GOOGLE_API_KEY` | ✅ Yes | Google AI API key for Gemini ([get one here](https://aistudio.google.com/apikey)) |
 | `GROUPME_BOT_ID` | ✅ Yes | Your GroupMe bot ID ([create a bot here](https://dev.groupme.com/bots)) |
+| `GITHUB_TOKEN` | For tasks | GitHub personal access token with `repo` scope |
+| `GITHUB_REPO` | For tasks | Repository in `owner/repo` format (e.g., `Shalom-Karr/ClaudeBot`) |
 | `BOT_NAME` | ❌ Optional | Display name for the bot (default: `AI Assistant`) |
+| `GEMINI_MODEL` | ❌ Optional | Gemini model to use (default: `gemini-2.0-flash`) |
+| `TUNNEL_NAME` | ❌ Optional | Named Cloudflare Tunnel (omit for quick tunnel) |
 
 ---
 
-## 🏃 Run Locally
+## 🚀 Quick Start (Linux / Codespaces)
 
-### 1. Clone the repo
+### Option 1: GitHub Codespaces (easiest)
+
+1. Click **Code → Codespaces → Create codespace** on this repo
+2. The devcontainer auto-installs Python, dependencies, and `cloudflared`
+3. Set your environment variables in the Codespace terminal:
+   ```bash
+   export GOOGLE_API_KEY="your_google_api_key"
+   export GROUPME_BOT_ID="your_groupme_bot_id"
+   export GITHUB_TOKEN="your_github_token"        # optional, for task: commands
+   export GITHUB_REPO="owner/repo"                 # optional, for task: commands
+   ```
+4. Start the bot with Cloudflare Tunnel:
+   ```bash
+   ./start.sh
+   ```
+5. Copy the `*.trycloudflare.com` URL from the output and set it as your GroupMe bot's **Callback URL**:
+   ```
+   https://<your-tunnel-url>/callback
+   ```
+
+### Option 2: Any Linux Server
 
 ```bash
-git clone https://github.com/JMTDI/ClaudeBot.git
+# 1. Clone the repo
+git clone https://github.com/Shalom-Karr/ClaudeBot.git
 cd ClaudeBot
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Install cloudflared (auto-installed by start.sh if missing)
+# Or manually: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+
+# 4. Set environment variables
+export GOOGLE_API_KEY="your_google_api_key"
+export GROUPME_BOT_ID="your_groupme_bot_id"
+export GITHUB_TOKEN="your_github_token"        # optional
+export GITHUB_REPO="owner/repo"                 # optional
+
+# 5. Start everything
+./start.sh
 ```
 
-### 2. Install dependencies
+### Option 3: Run Without Tunnel (manual port exposure)
 
 ```bash
-pip install flask anthropic requests
-```
-
-### 3. Set environment variables
-
-```bash
-export ANTHROPIC_API_KEY="your_anthropic_api_key_here"
-export GROUPME_BOT_ID="your_groupme_bot_id_here"
-export BOT_NAME="My Bot"  # optional
-```
-
-### 4. Start the server
-
-```bash
+# Just run the bot — expose port 8000 yourself (e.g., port forwarding, reverse proxy)
 python groupme_bot.py
 ```
 
-The bot will start listening on `http://0.0.0.0:8000`.
-
-### 5. Expose publicly (for local dev)
-
-Use [ngrok](https://ngrok.com/) or a similar tool to expose port 8000:
-
-```bash
-ngrok http 8000
-```
-
-Then set your GroupMe bot's **Callback URL** to:
-
-```
-https://your-ngrok-url/callback
-```
-
 ---
 
-## 🚀 Deploy to DevPu.sh
+## 💬 GroupMe Commands
 
-[DevPu.sh](https://app.devpu.sh/) is the easiest way to get ClaudeBot running in the cloud. Follow these steps:
-
-### Step 1 — Go to DevPu.sh
-
-Head to **[https://app.devpu.sh/](https://app.devpu.sh/)** and log in (or create an account).
-
-### Step 2 — Connect your repository
-
-Connect your GitHub account and select this forked repo.
-
-### Step 3 — Configure Build & Deploy settings
-
-Use the following configuration:
-
-| Setting | Value |
+| Command | What It Does |
 |---|---|
-| **Framework Preset** | Python |
-| **Image** | `Python 3.12` |
-| **Root Directory** | `/` (root of the repo) |
-| **Build Command** | `pip install flask anthropic requests` |
-| **Pre-deploy Command** | *(leave empty)* |
-| **Start Command** | `python groupme_bot.py` |
+| `task: <description>` | Start an AI coding task — Gemini crafts a prompt → Copilot creates a PR |
+| `status` | Check the current task's progress |
+| `tasks` | Show recent task history |
+| `help` | Show available commands |
+| *(anything else)* | Chat with Gemini AI |
 
-> ⚠️ The app **must listen on `0.0.0.0:8000`** — ClaudeBot already does this by default.
+### Example Workflow
 
-### Step 4 — Set environment variables
-
-In the DevPu.sh dashboard, add your environment variables:
-
-```
-ANTHROPIC_API_KEY = your_anthropic_api_key_here
-GROUPME_BOT_ID   = your_groupme_bot_id_here
-BOT_NAME         = My Bot   (optional)
-```
-
-### Step 5 — Deploy 🚀
-
-Click **Deploy**. DevPu.sh will:
-
-1. Pull your code from GitHub
-2. Use the **Python 3.12** image
-3. Run the build command: `pip install flask anthropic requests`
-4. Start your app with: `python groupme_bot.py`
-
-Once deployed, you'll get a public URL like:
-
-```
-https://your-app-name.devpu.sh
-```
-
-### Step 6 — Update GroupMe callback URL
-
-Go to [https://dev.groupme.com/bots](https://dev.groupme.com/bots), find your bot, and set the **Callback URL** to:
-
-```
-https://your-app-name.devpu.sh/callback
-```
+1. Send in GroupMe: `task: add a /stats endpoint that shows uptime`
+2. Bot replies: *"🧠 Gemini is analyzing your task..."*
+3. Bot replies: *"📝 Creating GitHub issue..."*
+4. Bot replies: *"✅ Task submitted to GitHub Copilot! Issue #42"*
+5. Copilot works on it autonomously and creates a PR
+6. Bot notifies: *"🎉 Copilot created PR #43!"*
 
 ---
 
@@ -154,17 +155,32 @@ https://your-app-name.devpu.sh/callback
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/` | Homepage — confirms bot is running |
-| `POST` | `/callback` | GroupMe webhook — receives messages and sends AI replies |
+| `GET` | `/health` | Health check with configuration status |
+| `POST` | `/callback` | GroupMe webhook — receives messages |
+| `POST` | `/github-webhook` | GitHub webhook — receives PR notifications from Copilot |
+
+---
+
+## 🌐 Cloudflare Tunnel Setup
+
+The `start.sh` script handles the tunnel automatically. Two modes:
+
+### Quick Tunnel (no account needed)
+Just run `./start.sh` — it creates a temporary `*.trycloudflare.com` URL. The URL changes each time you restart.
+
+### Named Tunnel (permanent URL)
+1. Sign up at [Cloudflare Zero Trust](https://one.dash.cloudflare.com/)
+2. Authenticate: `cloudflared tunnel login`
+3. Create a tunnel: `cloudflared tunnel create my-bot`
+4. Set the env var: `export TUNNEL_NAME=my-bot`
+5. Run: `./start.sh`
 
 ---
 
 ## 🛠️ How It Works
 
-1. A user sends a message in your **GroupMe group chat**
-2. GroupMe sends a **POST webhook** to `/callback` with the message data
-3. ClaudeBot checks if the message is from a human (ignores bot messages to avoid loops)
-4. The message is sent to **Claude AI** along with the last 20 messages for context
-5. Claude's response is posted back to the **GroupMe group** via the Bot API
+1. **Chat mode**: User sends a message → GroupMe webhook hits `/callback` → Gemini generates a reply → posted back to GroupMe
+2. **Task mode**: User sends `task: ...` → Gemini (Prompt Architect) crafts a detailed GitHub issue body → issue created via GitHub API → assigned to Copilot → Copilot implements and creates a PR → bot notifies GroupMe
 
 ---
 
@@ -174,4 +190,4 @@ This project is open source. Feel free to fork and customize!
 
 ---
 
-**Built with ❤️ using [Flask](https://flask.palletsprojects.com/), [Anthropic Claude](https://www.anthropic.com/), and [GroupMe](https://dev.groupme.com/)**
+**Built with ❤️ using [Flask](https://flask.palletsprojects.com/), [Google Gemini](https://ai.google.dev/), [GitHub Copilot](https://github.com/features/copilot), [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), and [GroupMe](https://dev.groupme.com/)**

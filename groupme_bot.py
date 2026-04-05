@@ -2,7 +2,7 @@
 GroupMe AI Bot — Callback Server with Copilot Pipeline
 
 Listens on port 8000 for GroupMe webhook callbacks. Supports two modes:
-1. **Chat mode** — Regular messages get Claude AI responses (existing behavior)
+1. **Chat mode** — Regular messages get Gemini AI responses
 2. **Task mode** — Messages starting with "task:" trigger the pipeline:
    GroupMe → Gemini (prompt architect) → GitHub Copilot (coding agent) → PR
 
@@ -13,20 +13,19 @@ Setup:
 1. pip install -r requirements.txt
 2. Set environment variables (see README.md)
 3. Run: python groupme_bot.py
+   Or use: ./start.sh (launches bot + Cloudflare Tunnel)
 """
 
 import os
-import json
 import logging
 import threading
 from typing import Optional
 
 import requests
 from flask import Flask, request, jsonify
-from anthropic import Anthropic
 
 from task_manager import TaskManager, TaskStatus
-from gemini_architect import craft_issue_prompt
+from gemini_architect import get_chat_response, craft_issue_prompt
 from github_copilot import (
     get_repo_file_list,
     get_file_contents,
@@ -44,13 +43,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # --- Configuration ---
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "your_anthropic_api_key_here")
 GROUPME_BOT_ID = os.environ.get("GROUPME_BOT_ID", "your_groupme_bot_id_here")
 GROUPME_POST_URL = "https://api.groupme.com/v3/bots/post"
 BOT_NAME = os.environ.get("BOT_NAME", "AI Assistant")
 
-# Initialize clients
-client = Anthropic(api_key=ANTHROPIC_API_KEY)
+# Initialize task manager
 task_mgr = TaskManager()
 
 # Conversation history per group (keyed by group_id)
@@ -72,8 +69,8 @@ def send_groupme_message(text: str, bot_id: str = GROUPME_BOT_ID) -> None:
             logger.error("[GroupMe] Error sending message: %s", e)
 
 
-def get_claude_response(group_id: str, user_name: str, user_message: str) -> str:
-    """Get a response from Claude, maintaining per-group conversation history."""
+def get_gemini_response(group_id: str, user_name: str, user_message: str) -> str:
+    """Get a response from Gemini, maintaining per-group conversation history."""
     if group_id not in conversation_history:
         conversation_history[group_id] = []
 
@@ -88,31 +85,14 @@ def get_claude_response(group_id: str, user_name: str, user_message: str) -> str
         conversation_history[group_id] = history[-MAX_HISTORY:]
         history = conversation_history[group_id]
 
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=500,
-            system=(
-                f"You are {BOT_NAME}, a helpful and friendly AI assistant in a GroupMe group chat. "
-                "Keep responses concise (under 300 characters when possible) since this is a chat app. "
-                "Be conversational, helpful, and engaging. "
-                "Messages will be prefixed with the sender's name like 'Name: message'."
-            ),
-            messages=history,
-        )
+    reply = get_chat_response(BOT_NAME, history)
 
-        assistant_reply = response.content[0].text
+    history.append({
+        "role": "model",
+        "content": reply
+    })
 
-        history.append({
-            "role": "assistant",
-            "content": assistant_reply
-        })
-
-        return assistant_reply
-
-    except Exception as e:
-        logger.error("[Claude] Error: %s", e)
-        return "Sorry, I ran into an issue processing that. Try again!"
+    return reply
 
 
 # ---------------------------------------------------------------------------
@@ -333,11 +313,11 @@ def callback():
             "• status — Check current task progress\n"
             "• tasks — Show recent task history\n"
             "• help — Show this message\n"
-            "• (anything else) — Chat with Claude AI"
+            "• (anything else) — Chat with Gemini AI"
         )
     else:
-        # Regular chat — send to Claude
-        reply = get_claude_response(group_id, sender_name, text)
+        # Regular chat — send to Gemini
+        reply = get_gemini_response(group_id, sender_name, text)
 
     send_groupme_message(reply)
     return jsonify({"status": "ok"}), 200
@@ -401,7 +381,6 @@ def health():
         "status": "running",
         "bot_name": BOT_NAME,
         "bot_id_set": GROUPME_BOT_ID != "your_groupme_bot_id_here",
-        "api_key_set": ANTHROPIC_API_KEY != "your_anthropic_api_key_here",
         "google_api_key_set": bool(os.environ.get("GOOGLE_API_KEY")),
         "github_token_set": bool(os.environ.get("GITHUB_TOKEN")),
         "github_repo": os.environ.get("GITHUB_REPO", "(not set)"),
@@ -426,7 +405,6 @@ if __name__ == "__main__":
     logger.info("  GroupMe AI Bot starting on port 8000")
     logger.info("  Bot Name       : %s", BOT_NAME)
     logger.info("  Bot ID set     : %s", GROUPME_BOT_ID != "your_groupme_bot_id_here")
-    logger.info("  Anthropic key  : %s", ANTHROPIC_API_KEY != "your_anthropic_api_key_here")
     logger.info("  Google API key : %s", bool(os.environ.get("GOOGLE_API_KEY")))
     logger.info("  GitHub token   : %s", bool(os.environ.get("GITHUB_TOKEN")))
     logger.info("  GitHub repo    : %s", os.environ.get("GITHUB_REPO", "(not set)"))

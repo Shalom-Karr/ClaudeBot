@@ -1,0 +1,30 @@
+{
+  "name": "ClaudeBot",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "postCreateCommand": "pip install -r requirements.txt && (cloudflared --version 2>/dev/null || (curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb && sudo dpkg -i /tmp/cloudflared.deb && rm /tmp/cloudflared.deb))",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "GroupMe Bot",
+      "onAutoForward": "notify"
+    }
+  },
+  "remoteEnv": {
+    "GOOGLE_API_KEY": "${localEnv:GOOGLE_API_KEY}",
+    "GROUPME_BOT_ID": "${localEnv:GROUPME_BOT_ID}",
+    "GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}",
+    "GITHUB_REPO": "${localEnv:GITHUB_REPO}",
+    "BOT_NAME": "${localEnv:BOT_NAME}"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "GitHub.copilot"
+      ]
+    }
+  }
+}
