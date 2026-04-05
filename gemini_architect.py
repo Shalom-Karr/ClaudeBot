@@ -1,16 +1,19 @@
 """
-Gemini Prompt Architect — Uses Google Gemini to craft detailed, context-rich
-prompts for the GitHub Copilot coding agent.
+Gemini Integration — Powers both conversation and prompt architecture.
 
-Gemini analyzes the user's task description along with repository context
-and produces a structured GitHub issue body that Copilot can act on.
+1. **Chat mode**: Gemini responds to regular GroupMe messages with conversational AI.
+2. **Prompt Architect mode**: Gemini crafts detailed GitHub issue bodies for the
+   Copilot coding agent to implement.
+
+Uses the `google-genai` SDK (the current, supported Google Generative AI package).
 """
 
 import os
 import logging
 from typing import Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +21,77 @@ logger = logging.getLogger(__name__)
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 
-# Configure the Gemini client
+# Initialize the Gemini client
+_client: Optional[genai.Client] = None
 if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
+    _client = genai.Client(api_key=GOOGLE_API_KEY)
 
 
-SYSTEM_PROMPT = """\
+def _get_client() -> genai.Client:
+    """Return the configured Gemini client, raising if not available."""
+    if _client is None:
+        raise RuntimeError("GOOGLE_API_KEY environment variable is not set")
+    return _client
+
+
+# ---------------------------------------------------------------------------
+# Chat mode — conversational AI for GroupMe
+# ---------------------------------------------------------------------------
+
+CHAT_SYSTEM_PROMPT = """\
+You are {bot_name}, a helpful and friendly AI assistant in a GroupMe group chat.
+Keep responses concise (under 300 characters when possible) since this is a chat app.
+Be conversational, helpful, and engaging.
+Messages will be prefixed with the sender's name like 'Name: message'.
+"""
+
+
+def get_chat_response(
+    bot_name: str,
+    history: list[dict[str, str]],
+) -> str:
+    """
+    Get a conversational response from Gemini for a GroupMe chat message.
+
+    Args:
+        bot_name: Display name of the bot.
+        history: List of {"role": "user"|"model", "content": "..."} dicts.
+
+    Returns:
+        The assistant's reply text.
+    """
+    client = _get_client()
+
+    # Convert history to google-genai Content format
+    contents: list[types.Content] = []
+    for msg in history:
+        role = "model" if msg["role"] in ("assistant", "model") else "user"
+        contents.append(types.Content(
+            role=role,
+            parts=[types.Part(text=msg["content"])],
+        ))
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=CHAT_SYSTEM_PROMPT.format(bot_name=bot_name),
+                max_output_tokens=500,
+            ),
+        )
+        return response.text.strip()
+
+    except Exception as e:
+        logger.error("[Gemini Chat] Error: %s", e)
+        return "Sorry, I ran into an issue processing that. Try again!"
+
+
+# ---------------------------------------------------------------------------
+# Prompt Architect mode — crafts GitHub issues for Copilot
+# ---------------------------------------------------------------------------
+
+ARCHITECT_SYSTEM_PROMPT = """\
 You are the **Prompt Architect** for a dual-AI coding system. Your job is to take
 a user's task description and produce a detailed, well-structured GitHub issue body
 that the GitHub Copilot coding agent (powered by Claude) will use to implement
@@ -49,7 +117,10 @@ Do NOT include a title — just the issue body. The title will be set separately
 """
 
 
-def _get_repo_context(repo_files: list[str], file_contents: Optional[dict[str, str]] = None) -> str:
+def _get_repo_context(
+    repo_files: list[str],
+    file_contents: Optional[dict[str, str]] = None,
+) -> str:
     """Format repository context for the prompt."""
     context = "## Repository Structure\n```\n"
     context += "\n".join(repo_files)
@@ -77,9 +148,7 @@ def craft_issue_prompt(
     Raises:
         RuntimeError: If Gemini API call fails or API key is not configured.
     """
-    if not GOOGLE_API_KEY:
-        raise RuntimeError("GOOGLE_API_KEY environment variable is not set")
-
+    client = _get_client()
     repo_context = _get_repo_context(repo_files, file_contents)
 
     user_prompt = f"""\
@@ -95,11 +164,13 @@ line, prefixed with "TITLE: "). Then write the full issue body below it.
 """
 
     try:
-        model = genai.GenerativeModel(
-            model_name=GEMINI_MODEL,
-            system_instruction=SYSTEM_PROMPT,
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=ARCHITECT_SYSTEM_PROMPT,
+            ),
         )
-        response = model.generate_content(user_prompt)
         raw_text = response.text.strip()
 
         # Parse title and body
