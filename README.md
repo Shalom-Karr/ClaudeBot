@@ -19,8 +19,11 @@ A **GroupMe AI chatbot** powered by [Claude](https://www.anthropic.com/) (Anthro
 
 ```
 ClaudeBot/
-├── groupme_bot.py   # Main application (Flask server + Claude AI + GroupMe integration)
-└── README.md        # You are here
+├── .github/
+│   └── copilot-instructions.md   # Instructions for GitHub Copilot agent
+├── groupme_bot.py                # Main application (Flask server + Claude AI + GroupMe integration)
+├── ideas.md                      # Project roadmap, architecture & development plans
+└── README.md                     # You are here
 ```
 
 ---
